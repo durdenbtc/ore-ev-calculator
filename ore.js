@@ -10,6 +10,9 @@
   const RESET_DELAY_MS = 5000;
   const PRICE_UPDATE_MS = 15_000;
 
+  // Auto-select which rank? 1 = top EV (current behavior), 2 = second-best, 3 = third-best
+  const AUTO_SELECT_RANK = 2; // <— set to 2 or 3 if you want to avoid pile-ins
+
   // Dynamic prices (will be updated from API)
   let PRICE_ORE_USD = 110;
   let PRICE_SOL_USD = 200;
@@ -320,57 +323,59 @@
     lastHighlightedEV = null;
   }
   
-  function showEV(btn, evValue, isHighest) {
+  function showEV(btn, evValue, rank /* 1=top,2=second,3=third, else overlay only */) {
     if (getComputedStyle(btn).position === 'static') {
       btn.style.position = 'relative';
     }
-  
-    if (isHighest) {
+
+    // Border/Glow per rank
+    if (rank === 1) {
       btn.classList.add('ore-ev-highlighted');
       btn.style.boxShadow = '0 0 0 3px rgba(0,255,0,0.95) inset, 0 0 10px rgba(0,255,0,0.5)';
-      btn.style.borderColor = 'rgba(0,255,0,0.95)';
+      btn.style.borderColor = 'rgba(0,255,0,0.95)'; // GREEN
+    } else if (rank === 2) {
+      btn.classList.add('ore-ev-highlighted');
+      btn.style.boxShadow = '0 0 0 3px rgba(255,169,58,0.95) inset, 0 0 10px rgba(255,169,58,0.5)';
+      btn.style.borderColor = 'rgba(255,169,58,0.95)'; // ORANGE
+    } else if (rank === 3) {
+      btn.classList.add('ore-ev-highlighted');
+      btn.style.boxShadow = '0 0 0 3px rgba(46,163,255,0.95) inset, 0 0 10px rgba(46,163,255,0.5)';
+      btn.style.borderColor = 'rgba(46,163,255,0.95)'; // BLUE
     }
-  
-    let overlay = document.createElement('div');
+
+    // EV label styling
+    const overlay = document.createElement('div');
     overlay.className = 'ore-ev-overlay';
-    
-    let textColor, fontWeight;
-    if (isHighest && evValue > 0) {
-      textColor = '#2dff2d';
-      fontWeight = '700';
-    } else if (evValue < 0) {
-      textColor = '#ff6b6b';
-      fontWeight = '600';
-    } else if (evValue < 0.0001) {
-      textColor = '#888888';
-      fontWeight = '500';
-    } else {
-      textColor = '#cccccc';
-      fontWeight = '600';
-    }
-    
-    const bgOpacity = isHighest ? '0.90' : '0.80';
-    
+
+    let textColor = '#cccccc', fontWeight = '600';
+    if (evValue < 0) { textColor = '#ff6b6b'; fontWeight = '600'; }
+    else if (evValue < 0.0001) { textColor = '#888888'; fontWeight = '500'; }
+    else if (rank === 1) { textColor = '#2dff2d'; fontWeight = '700'; }
+
+    const bgOpacity = rank ? '0.90' : '0.80';
     overlay.style.cssText = `
-      position: absolute;
-      left: 50%;
-      top: 50%;
-      transform: translate(-50%, -50%);
-      pointer-events: none;
-      padding: 2px 5px;
-      background: rgba(0,0,0,${bgOpacity});
-      color: ${textColor};
-      font-weight: ${fontWeight};
-      text-shadow: 0 1px 2px rgba(0,0,0,0.8);
-      border-radius: 3px;
-      font-size: 0.75em;
-      white-space: nowrap;
-      z-index: 1000;
-      line-height: 1.2;
+      position:absolute; left:50%; top:50%; transform:translate(-50%,-50%);
+      pointer-events:none; padding:2px 5px; background:rgba(0,0,0,${bgOpacity});
+      color:${textColor}; font-weight:${fontWeight}; text-shadow:0 1px 2px rgba(0,0,0,.8);
+      border-radius:3px; font-size:.75em; white-space:nowrap; z-index:1000; line-height:1.2;
     `;
     overlay.textContent = `${formatSol(evValue)}`;
+
+    // Small rank badge
+    if (rank && rank <= 3) {
+      const badge = document.createElement('div');
+      badge.textContent = rank === 1 ? 'EV #1' : rank === 2 ? 'EV #2' : 'EV #3';
+      badge.style.cssText = `
+        position:absolute; top:6px; right:6px; z-index:1001;
+        font:600 11px/1.1 system-ui,-apple-system,Segoe UI,Roboto,Arial;
+        padding:3px 6px; border-radius:6px; color:#0b0b0b; background:#fff; opacity:.92;
+      `;
+      btn.appendChild(badge);
+    }
+
     btn.appendChild(overlay);
   }
+
 
   function computeEVStarForBlock(O, T, oreValueInSOL) {
     if (!isFinite(O) || O <= 0) return { y: 0, EV: -Infinity };
@@ -477,35 +482,33 @@
   
       clearOldHighlights();
   
-      let best = null;
       const validBlocks = [];
-      
+
       for (const b of blocks) {
         if (!isFinite(b.O) || b.O <= 0) continue;
-  
         const { y, EV } = computeEVStarForBlock(b.O, T, oreValueInSOL);
-        b.y = y;
-        b.EV = EV;
-        
-        if (isFinite(EV)) {
-          validBlocks.push(b);
-          if (!best || EV > best.EV) {
-            best = b;
-          }
-        }
-      }
-  
-      for (const b of validBlocks) {
-        const isHighest = (best && b === best && b.EV > 0);
-        showEV(b.btn, b.EV, isHighest);
-        
-        if (isHighest) {
-          b.btn._evValue = b.EV;
-        }
+        b.y = y; b.EV = EV;
+        if (isFinite(EV)) validBlocks.push(b);
       }
 
-      if (best && best.EV > 0) {
-        autoSelectBestButton(best.btn);
+      // Rank by EV, highest first
+      validBlocks.sort((a, b) => b.EV - a.EV);
+      const top1 = validBlocks[0], top2 = validBlocks[1], top3 = validBlocks[2];
+
+      // Paint overlays (ranked)
+      for (const b of validBlocks) {
+        let rank = 0;
+        if (top1 && b === top1 && b.EV > 0) rank = 1;
+        else if (top2 && b === top2 && b.EV > 0) rank = 2;
+        else if (top3 && b === top3 && b.EV > 0) rank = 3;
+        showEV(b.btn, b.EV, rank);
+        if (rank) b.btn._evValue = b.EV;
+      }
+
+      // Auto-select chosen rank (configurable at top)
+      const choice = (AUTO_SELECT_RANK === 2 ? top2 : AUTO_SELECT_RANK === 3 ? top3 : top1);
+      if (choice && choice.EV > 0) {
+        autoSelectBestButton(choice.btn);
       }
   
     } catch (e) {
