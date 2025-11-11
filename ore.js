@@ -339,8 +339,8 @@
       btn.style.borderColor = 'rgba(255,169,58,0.95)'; // ORANGE
     } else if (rank === 3) {
       btn.classList.add('ore-ev-highlighted');
-      btn.style.boxShadow = '0 0 0 3px rgba(46,163,255,0.95) inset, 0 0 10px rgba(46,163,255,0.5)';
-      btn.style.borderColor = 'rgba(46,163,255,0.95)'; // BLUE
+      btn.style.boxShadow = '0 0 0 3px rgba(255, 46, 241, 0.95) inset, 0 0 10px rgba(224, 46, 255, 0.84)';
+      btn.style.borderColor = 'rgba(255, 46, 241, 0.95)'; // BLUE
     }
 
     // EV label styling
